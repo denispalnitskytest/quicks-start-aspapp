@@ -117,5 +117,5 @@ The following Docker images are used in this sample
 
 * [ASP.NET Core Getting Started Tutorials](https://www.asp.net/get-started)
 * [.NET Core Production Docker sample](../dotnetapp-prod/README.md)
-* [.NET Core Docker samples](../README.md)
+* [.NET Core Docker samples](../README.md)\
 * [.NET Framework Docker samples](https://github.com/Microsoft/dotnet-framework-docker-samples)
