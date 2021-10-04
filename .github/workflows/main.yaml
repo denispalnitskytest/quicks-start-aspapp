@@ -5,5 +5,5 @@ on:
 
 jobs:
   danger:
-    uses: "danger/danger"
+    uses: danger/danger-js@v10.6.6
     secrets: "GITHUB_TOKEN"
