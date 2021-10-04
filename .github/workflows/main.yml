@@ -1,5 +1,4 @@
-name: .NET
-
+name: danger
 on:  
   pull_request:
 
