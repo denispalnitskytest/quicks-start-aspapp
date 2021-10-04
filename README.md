@@ -30,6 +30,7 @@ docker run -it --rm -p 8000:80 aspnetapp
 
 After the application starts, visit `http://localhost:8000` in your web browser.
 
+
 Note: The `-p` argument maps port 8000 on you local machine to port 80 in the container (the form of the port mapping is `host:container`). See the [Docker run reference](https://docs.docker.com/engine/reference/commandline/run/) for more information on commandline paramaters.
 
 ## Build and run the sample with Docker for Windows containers
