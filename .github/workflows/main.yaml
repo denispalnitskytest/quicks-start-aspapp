@@ -1,7 +1,9 @@
 name: .NET
 
 on:  
-  pull_request:
+  push:
+    paths:
+      - "github/workflows/main.yaml"
 
 jobs:
   danger:
