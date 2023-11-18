@@ -1,0 +1,90 @@
+name: C# CI Workflow
+
+on: [push, workflow_dispatch]
+
+env:
+  DOTNET_VERSION: 6.0.x # set this to your .NET version
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      checks: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up .NET Core
+        uses: actions/setup-dotnet@v2
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.nuget/packages
+          key: ${{ runner.os }}-nuget-${{ hashFiles('**/packages.lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nuget-
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+      - name: Test and Collect Coverage
+        run: dotnet test --no-restore --collect:"XPlat Code Coverage"
+
+      - name: Publish Test Results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: 'Test Results'
+          path: '**/TestResults/*.xml'
+          reporter: 'dotnet-trx'
+
+      - name: Publish Code Coverage Results
+        run: dotnet tool install -g dotnet-reportgenerator-globaltool &&
+             reportgenerator "-reports:**/TestResults/**/*.xml" "-targetdir:coveragereport" -reporttypes:"Cobertura" &&
+             reportgenerator "-reports:**/coveragereport/Cobertura.xml" "-targetdir:coveragereport" -reporttypes:"MarkdownSummary"
+
+      - name: Add Code Coverage Comment to PR
+        uses: marocchino/sticky-pull-request-comment@v2
+        if: github.event_name == 'pull_request'
+        with:
+          path: coveragereport/Summary.md
+
+  lint-and-security:
+    name: Static analysis and security checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      checks: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up .NET Core
+        uses: actions/setup-dotnet@v2
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Install .NET Format Tool - for linting
+        run: dotnet tool install -g dotnet-format
+
+      - name: Lint .NET Code
+        run: dotnet format --check --verbosity diagnostic
+    
+      # You would use third-party tools or GitHub Actions for running SAST and other security checks.
+      # The below "Run Security Analysis" and "Check for Vulnerabilities" are placeholders and should be replaced
+      # with actions suitable for .NET ecosystem (e.g., OWASP Zap, SonarQube, etc.)
+
+      - name: Run Security Analysis
+        run: echo 'Security analysis tools need to be integrated here'
+
+      - name: Check for Vulnerabilities with .NET
+        run: dotnet list package --vulnerable
