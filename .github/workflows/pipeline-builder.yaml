@@ -1,13 +1,10 @@
-name: C# CI Workflow
+name: .NET CI
 
-on: [push, workflow_dispatch]
-
-env:
-  DOTNET_VERSION: 2.0.9 # Set the version to the latest patch for 2.x runtime
+on: 
+  pull_request:
 
 jobs:
   build-and-test:
-    name: Build and Test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -16,77 +13,68 @@ jobs:
       pull-requests: write
 
     steps:
-      - uses: actions/checkout@v3
+    - name: Checkout Code
+      uses: actions/checkout@v3
 
-      - name: Set up .NET Core
-        uses: actions/setup-dotnet@v2
-        with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
+    - name: Setup .NET Core
+      uses: actions/setup-dotnet@v2
+      with:
+        dotnet-version: '8.0.x'
 
-      - name: Cache NuGet packages
-        uses: actions/cache@v3
-        with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-
+    - name: Cache NuGet Packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
 
-      - name: Restore dependencies
-        run: dotnet restore
+    - name: Restore Dependencies
+      run: dotnet restore
 
-      - name: Build
-        run: dotnet build --configuration Release --no-restore
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
 
-      - name: Test and Collect Coverage
-        run: |
-          dotnet add package coverlet.msbuild
-          dotnet test --no-restore /p:CollectCoverage=true /p:CoverletOutputFormat=cobertura
+    - name: Test
+      run: dotnet test --no-restore --collect:"XPlat Code Coverage"
 
-      - name: Publish Test Results
-        uses: dorny/test-reporter@v1
-        if: always()
-        with:
-          name: 'Test Results'
-          path: '**/TestResults/*.xml'
-          reporter: 'dotnet-trx'
+    # Assuming tests generate a `TestResults.xml` file
+    - name: Publish Test Results
+      uses: dorny/test-reporter@v1
+      if: always()
+      with:
+        name: Test Results
+        path: '**/TestResults/*.xml'
+        reporter: dotnet-trx
 
-      - name: Publish Code Coverage Results
-        run: |
-          dotnet tool install --global dotnet-reportgenerator-globaltool
-          reportgenerator "-reports:**/coverage.cobertura.xml" "-targetdir:coveragereport" -reporttypes:"Cobertura" &&
-          reportgenerator "-reports:**/coveragereport/Cobertura.xml" "-targetdir:coveragereport" -reporttypes:"MarkdownSummary"
+    - name: Generate Coverage Report
+      run: dotnet test --no-restore /p:CollectCoverage=true /p:CoverletOutputFormat=cobertura /p:CoverletOutput='./TestResults/Coverage/'
 
-      - name: Add Code Coverage Comment to PR
-        uses: marocchino/sticky-pull-request-comment@v2
-        if: github.event_name == 'pull_request'
-        with:
-          path: coveragereport/Summary.md
-
-  lint-and-security:
-    name: Static analysis and security checks
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: read
-      checks: write
-      pull-requests: write
-
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Set up .NET Core
-        uses: actions/setup-dotnet@v2
-        with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
+    - name: Upload Coverage Report to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        files: '**/TestResults/Coverage/*.xml'
+        fail_ci_if_error: true
         
-      # Linting is more challenging with .NET Core 2.0, as it lacks built-in "dotnet format" tools
-      # Here, you might use third-party linters like StyleCop, which need to be set up separately
+    - name: Install .NET Format (Lint)
+      run: dotnet tool install -g dotnet-format
 
-      # For SAST and vulnerability checks, placeholder actions are used, and these should
-      # be replaced with .NET Core 2.0 compatible tools.
+    - name: Lint with dotnet-format
+      run: dotnet format --check
 
-      - name: Run Security Analysis
-        run: echo 'Security analysis tools need to be integrated here'
-
-      - name: Check for Vulnerabilities
-        run: echo 'Integrate a .NET Core 2.0 compatible vulnerability scanner'
+    - name: Perform Security Analysis with dotnet
+      run: dotnet build /p:Configuration=Release /p:RunAnalyzersDuringBuild=true
+      
+    - uses: jwalton/gh-find-current-pr@v1
+      id: find_pr
+      
+    - name: Add Code Coverage Comment to PR
+      if: steps.find_pr.outputs.number
+      uses: marocchino/sticky-pull-request-comment@v2
+      with:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        header: Code Coverage Report
+        message: |
+          ## Code Coverage Report
+          ![Coverage Badge](./coverage-badge.svg)
+          [Full report](./coverage-report.html)
