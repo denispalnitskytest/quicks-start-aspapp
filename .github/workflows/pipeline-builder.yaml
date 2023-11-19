@@ -1,92 +1,86 @@
-name: C# CI Workflow
+name: Build and Test .NET
 
-on: [push, workflow_dispatch]
-
-env:
-  DOTNET_VERSION: 2.0.9 # Set the version to the latest patch for 2.x runtime
-
+on: 
+  pull_request:
+  
 jobs:
-  build-and-test:
-    name: Build and Test
+  build-test-lint-security:
+    name: Build, Test, Lint and Security Analysis
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: read
-      checks: write
-      pull-requests: write
 
     steps:
-      - uses: actions/checkout@v3
+    - name: Checkout Repo
+      uses: actions/checkout@v3
 
-      - name: Set up .NET Core
-        uses: actions/setup-dotnet@v2
-        with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
+    # Setup .NET Core SDK
+    - name: Setup .NET Core
+      uses: actions/setup-dotnet@v2
+      with:
+        dotnet-version: '8.0.x'
 
-      - name: Cache NuGet packages
-        uses: actions/cache@v3
-        with:
-          path: ~/.nuget/packages
-          key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
-          restore-keys: |
-            ${{ runner.os }}-nuget-
+    # Cache NuGet Packages
+    - name: Cache NuGet packages
+      uses: actions/cache@v3
+      with:
+        path: ~/.nuget/packages
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/NuGetLockFile.lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-nuget-
+          
+    # Restore NuGet Packages
+    - name: Restore NuGet packages
+      run: dotnet restore
 
-      - name: Restore dependencies
-        run: dotnet restore
+    # Build
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
 
-      - name: Build
-        run: dotnet build --configuration Release --no-restore
+    # Test
+    - name: Test
+      run: dotnet test --no-restore --collect:"XPlat Code Coverage"
 
-      - name: Test and Collect Coverage
-        run: |
-          dotnet add package coverlet.msbuild
-          dotnet test --no-restore /p:CollectCoverage=true /p:CoverletOutputFormat=cobertura
+    # Publish Test Results
+    - name: Publish Test Results
+      if: always() # ensures this step runs even if previous steps fail
+      uses: dorny/test-reporter@v2
+      with:
+        name: Publish Test Results
+        path: '**/*Tests/TestResults/TestResults.xml'
+        reporter: dotnet-trx
+        fail-if-no-test-files-found: false
 
-      - name: Publish Test Results
-        uses: dorny/test-reporter@v1
-        if: always()
-        with:
-          name: 'Test Results'
-          path: '**/TestResults/*.xml'
-          reporter: 'dotnet-trx'
+    # Publish Test Coverage
+    # Assuming you have already setup coverlet.collector in your test projects to output Cobertura format
+    - name: Publish Test Coverage
+      if: always() # ensures this step runs even if previous steps fail
+      uses: coverallsapp/github-action@master
+      with:
+        path-to-lcov: './**/coverage.cobertura.xml'
+        github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Publish Code Coverage Results
-        run: |
-          dotnet tool install --global dotnet-reportgenerator-globaltool
-          reportgenerator "-reports:**/coverage.cobertura.xml" "-targetdir:coveragereport" -reporttypes:"Cobertura" &&
-          reportgenerator "-reports:**/coveragereport/Cobertura.xml" "-targetdir:coveragereport" -reporttypes:"MarkdownSummary"
+    # Lint using .NET Format
+    - name: Install .NET Format tool
+      run: dotnet tool install -g dotnet-format
 
-      - name: Add Code Coverage Comment to PR
-        uses: marocchino/sticky-pull-request-comment@v2
-        if: github.event_name == 'pull_request'
-        with:
-          path: coveragereport/Summary.md
+    - name: Run .NET Format (Lint)
+      run: dotnet format --check
 
-  lint-and-security:
-    name: Static analysis and security checks
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: read
-      checks: write
-      pull-requests: write
+    - name: Publish Lint Results
+      uses: wearerequired/lint-action@v3.0.0
+      with:
+        github_token: ${{ secrets.github_token }}
+        check_name: .NET Format Lint Results
+        eslint: false
 
-    steps:
-      - uses: actions/checkout@v3
+    # Security Analysis
+    - name: Install Security Code Scan tool
+      run: dotnet tool install --global security-scan
 
-      - name: Set up .NET Core
-        uses: actions/setup-dotnet@v2
-        with:
-          dotnet-version: ${{ env.DOTNET_VERSION }}
-        
-      # Linting is more challenging with .NET Core 2.0, as it lacks built-in "dotnet format" tools
-      # Here, you might use third-party linters like StyleCop, which need to be set up separately
+    - name: Run Security Code Scan
+      run: security-scan
 
-      # For SAST and vulnerability checks, placeholder actions are used, and these should
-      # be replaced with .NET Core 2.0 compatible tools.
-
-      - name: Run Security Analysis
-        run: echo 'Security analysis tools need to be integrated here'
-
-      - name: Check for Vulnerabilities
-        run: echo 'Integrate a .NET Core 2.0 compatible vulnerability scanner'
+    - name: Publish Security Analysis Results
+      uses: actions/upload-artifact@v3
+      with:
+        name: Security Scan Report
+        path: SecurityCodeScanReport.xml
