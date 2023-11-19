@@ -1,86 +1,82 @@
-name: Build and Test .NET
+name: .NET CI
 
 on: 
   pull_request:
-  
+    branches: 
+      - main
+
 jobs:
-  build-test-lint-security:
-    name: Build, Test, Lint and Security Analysis
+  build-and-test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read
+      checks: write
+      pull-requests: write
 
     steps:
-    - name: Checkout Repo
+    - name: Checkout Code
       uses: actions/checkout@v3
 
-    # Setup .NET Core SDK
     - name: Setup .NET Core
       uses: actions/setup-dotnet@v2
       with:
         dotnet-version: '8.0.x'
 
-    # Cache NuGet Packages
-    - name: Cache NuGet packages
+    - name: Cache NuGet Packages
       uses: actions/cache@v3
       with:
         path: ~/.nuget/packages
-        key: ${{ runner.os }}-nuget-${{ hashFiles('**/NuGetLockFile.lock.json') }}
+        key: ${{ runner.os }}-nuget-${{ hashFiles('**/*.csproj') }}
         restore-keys: |
           ${{ runner.os }}-nuget-
-          
-    # Restore NuGet Packages
-    - name: Restore NuGet packages
+
+    - name: Restore Dependencies
       run: dotnet restore
 
-    # Build
     - name: Build
       run: dotnet build --configuration Release --no-restore
 
-    # Test
     - name: Test
       run: dotnet test --no-restore --collect:"XPlat Code Coverage"
 
-    # Publish Test Results
+    # Assuming tests generate a `TestResults.xml` file
     - name: Publish Test Results
-      if: always() # ensures this step runs even if previous steps fail
-      uses: dorny/test-reporter@v2
+      uses: dorny/test-reporter@v1
+      if: always()
       with:
-        name: Publish Test Results
-        path: '**/*Tests/TestResults/TestResults.xml'
+        name: Test Results
+        path: '**/TestResults/*.xml'
         reporter: dotnet-trx
-        fail-if-no-test-files-found: false
 
-    # Publish Test Coverage
-    # Assuming you have already setup coverlet.collector in your test projects to output Cobertura format
-    - name: Publish Test Coverage
-      if: always() # ensures this step runs even if previous steps fail
-      uses: coverallsapp/github-action@master
+    - name: Generate Coverage Report
+      run: dotnet test --no-restore /p:CollectCoverage=true /p:CoverletOutputFormat=cobertura /p:CoverletOutput='./TestResults/Coverage/'
+
+    - name: Upload Coverage Report to Codecov
+      uses: codecov/codecov-action@v3
       with:
-        path-to-lcov: './**/coverage.cobertura.xml'
-        github-token: ${{ secrets.GITHUB_TOKEN }}
-
-    # Lint using .NET Format
-    - name: Install .NET Format tool
+        files: '**/TestResults/Coverage/*.xml'
+        fail_ci_if_error: true
+        
+    - name: Install .NET Format (Lint)
       run: dotnet tool install -g dotnet-format
 
-    - name: Run .NET Format (Lint)
+    - name: Lint with dotnet-format
       run: dotnet format --check
 
-    - name: Publish Lint Results
-      uses: wearerequired/lint-action@v3.0.0
+    - name: Perform Security Analysis with dotnet
+      run: dotnet build /p:Configuration=Release /p:RunAnalyzersDuringBuild=true
+      
+    - uses: jwalton/gh-find-current-pr@v1
+      id: find_pr
+      
+    - name: Add Code Coverage Comment to PR
+      if: steps.find_pr.outputs.number
+      uses: marocchino/sticky-pull-request-comment@v2
       with:
-        github_token: ${{ secrets.github_token }}
-        check_name: .NET Format Lint Results
-        eslint: false
-
-    # Security Analysis
-    - name: Install Security Code Scan tool
-      run: dotnet tool install --global security-scan
-
-    - name: Run Security Code Scan
-      run: security-scan
-
-    - name: Publish Security Analysis Results
-      uses: actions/upload-artifact@v3
-      with:
-        name: Security Scan Report
-        path: SecurityCodeScanReport.xml
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        header: Code Coverage Report
+        message: |
+          ## Code Coverage Report
+          ![Coverage Badge](./coverage-badge.svg)
+          [Full report](./coverage-report.html)
